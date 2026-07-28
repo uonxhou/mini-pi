@@ -37,6 +37,7 @@ src/mini_pi/
 - Streaming uses async generators yielding `AgentEvent`
 - CLI uses `argparse`, colored output via ANSI codes
 - Dependencies: `anthropic`, `httpx` (declared in pyproject.toml)
+- **Documentation sync**: When project structure changes (new/renamed/moved files or modules), update the Architecture section in AGENTS.md and README.md accordingly
 
 ## Key Design Decisions
 
