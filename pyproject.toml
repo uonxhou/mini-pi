@@ -1,0 +1,18 @@
+[project]
+name = "mini-pi"
+version = "0.1.0"
+description = "A minimal AI coding agent - built from scratch for learning"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.39.0",
+    "asyncio>=4.0.0",
+    "httpx>=0.28.0",
+]
+
+[project.scripts]
+mini-pi = "mini_pi.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
