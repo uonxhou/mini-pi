@@ -9,6 +9,10 @@ Inspired by [pi](https://github.com/earendil-works/pi).
 ```
 mini-pi/
 ├── main.py                      # Entry point
+├── pyproject.toml                # Project config & dependencies
+├── AGENTS.md                     # Project memory (for AI agents)
+├── docs/
+│   └── ROADMAP.md               # 7-phase development plan
 └── src/mini_pi/
     ├── types.py                 # Core type definitions (messages, tools, events)
     ├── llm/

@@ -14,19 +14,26 @@ Reference implementation: [pi](https://github.com/earendil-works/pi) ([monorepo]
 ## Architecture
 
 ```
-src/mini_pi/
-├── types.py          # Core types: messages, tools, events
-├── llm/
-│   └── client.py     # Anthropic API client (streaming + tool calling)
-├── tools/
-│   ├── base.py       # Tool base class + ToolRegistry
-│   ├── read.py       # Read files (text + images)
-│   ├── bash.py       # Execute shell commands
-│   ├── write.py      # Create/overwrite files
-│   └── edit.py       # Precise text replacement editing
-├── agent/
-│   └── loop.py       # Core agent loop (LLM ↔ tools)
-└── cli.py            # CLI (single-prompt + interactive mode)
+mini-pi/
+├── main.py                # Entry point
+├── pyproject.toml          # Project config & dependencies
+├── AGENTS.md               # Project memory (this file)
+├── README.md               # Human-readable overview
+├── docs/
+│   └── ROADMAP.md          # 7-phase development plan
+└── src/mini_pi/
+    ├── types.py            # Core types: messages, tools, events
+    ├── llm/
+    │   └── client.py       # Anthropic API client (streaming + tool calling)
+    ├── tools/
+    │   ├── base.py         # Tool base class + ToolRegistry
+    │   ├── read.py         # Read files (text + images)
+    │   ├── bash.py         # Execute shell commands
+    │   ├── write.py        # Create/overwrite files
+    │   └── edit.py         # Precise text replacement editing
+    ├── agent/
+    │   └── loop.py         # Core agent loop (LLM ↔ tools)
+    └── cli.py              # CLI (single-prompt + interactive mode)
 ```
 
 ## Conventions
