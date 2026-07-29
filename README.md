@@ -1,5 +1,8 @@
 # mini-pi
 
+[![PyPI version](https://img.shields.io/pypi/v/mini-pi.svg)](https://pypi.org/project/mini-pi/)
+[![Python](https://img.shields.io/pypi/pyversions/mini-pi.svg)](https://pypi.org/project/mini-pi/)
+
 A minimal AI coding agent, built from scratch for learning how AI coding agents work.
 
 Inspired by [pi](https://github.com/earendil-works/pi).
@@ -61,17 +64,40 @@ User prompt → LLM (with tools) → Tool calls? → Execute → Repeat
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full development plan across 6 phases.
 
+## Installation
+
+### For users (recommended)
+
+```bash
+# Via uv tool (fast, isolated environment)
+uv tool install mini-pi
+
+# Or via pipx
+pipx install mini-pi
+
+# Or via pip
+pip install mini-pi
+```
+
+### For development
+
+```bash
+git clone https://github.com/YOUR_USERNAME/mini-pi.git
+cd mini-pi
+uv sync
+```
+
 ## Setup
 
 ```bash
-# Install dependencies
-pip install -e .
-
-# Set your API key
+# Set your Anthropic API key
 export ANTHROPIC_API_KEY=sk-ant-...
 
 # Run
 mini-pi "What files are in the current directory?"
+
+# Interactive mode
+mini-pi -i
 ```
 
 ## Learning Path

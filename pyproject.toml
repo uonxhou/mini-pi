@@ -1,14 +1,33 @@
 [project]
 name = "mini-pi"
 version = "0.1.0"
-description = "A minimal AI coding agent - built from scratch for learning"
+description = "A minimal AI coding agent — built from scratch for learning"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
+authors = [
+    { name = "Chaoqun Zhou", email = "chaoqun2.zhou@gamil.com" },
+]
+keywords = ["ai", "coding-agent", "cli", "anthropic", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
 dependencies = [
     "anthropic>=0.39.0",
-    "asyncio>=4.0.0",
     "httpx>=0.28.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/uonxhou/mini-pi"
+Repository = "https://github.com/uonxhou/mini-pi"
+Issues = "https://github.com/uonxhou/mini-pi/issues"
 
 [project.scripts]
 mini-pi = "mini_pi.cli:main"
