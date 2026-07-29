@@ -21,7 +21,6 @@ from typing import Any
 import openai
 
 from mini_pi.config import (
-    PROVIDER_DEFAULTS,
     detect_provider,
     get_auth_path,
     get_config_path,
@@ -67,26 +66,38 @@ Guidelines:
 
 class LLMClient:
     """
-    Unified LLM client. Uses OpenAI SDK, defaults to DeepSeek API.
+    Unified LLM client. Uses OpenAI SDK.
+
+    All provider-specific settings (model, base_url, api_key) come from
+    configuration, CLI arguments, or environment variables — no hardcoded
+    defaults. If any required setting is missing, a ValueError is raised
+    with a helpful message.
 
     API key priority (pi-style):
         1. api_key parameter (explicit)
         2. ~/.mini-pi/auth.json entry for the detected provider
-        3. Environment variable (e.g. DEEPSEEK_API_KEY)
+        3. Environment variable ({PROVIDER}_API_KEY)
+        4. config.json "api_key" field (legacy)
 
     Usage:
-        client = LLMClient(model="deepseek-v4-pro")
+        client = LLMClient(model="MiniMax-M3")
         response = await client.chat(messages, tools)
     """
 
     def __init__(
         self,
-        model: str = "deepseek-v4-pro",
+        model: str,
         api_key: str | None = None,
         base_url: str | None = None,
         system_prompt: str | None = None,
         max_tokens: int = 16000,
     ):
+        if not model:
+            raise ValueError(
+                "No model specified. "
+                f"Set it in {get_config_path()}: {{\"model\": \"...\"}}"
+            )
+
         self.model = model
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.max_tokens = max_tokens
@@ -95,32 +106,41 @@ class LLMClient:
         config = load_config()
         auth = load_auth()
 
-        # Detect provider from model + base_url
-        provider = detect_provider(model, base_url)
-        provider_defaults = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS["deepseek"])
+        # Detect provider from model + base_url (for auth.json lookup)
+        provider = detect_provider(model, base_url or config.get("base_url"))
 
-        # ── Resolve API key: param > auth.json > env var (pi-style) ──
-        if api_key:
-            pass  # explicit param wins
-        else:
-            api_key = resolve_api_key(provider, provider_defaults["env_var"], auth)
+        # ── Resolve API key: param > auth.json > env var > config.json ──
+        if not api_key:
+            api_key = resolve_api_key(provider, auth)
+            if not api_key:
+                # Fallback: legacy api_key in config.json
+                api_key = config.get("api_key")
 
         if not api_key:
+            env_var = f"{provider.upper()}_API_KEY"
             raise ValueError(
                 f"No API key found for provider '{provider}'.\n"
-                f"  • Set {provider_defaults['env_var']} environment variable, or\n"
+                f"  • Set {env_var} environment variable, or\n"
                 f"  • Add to {get_auth_path()}:\n"
                 f'    {{"{provider}": {{"type": "api_key", "key": "sk-..."}}}}\n'
+                f"  • Or set 'api_key' in {get_config_path()}\n"
                 f"  • Pass --api-key flag (CLI) or api_key parameter (SDK)"
             )
 
-        # ── Resolve base_url: param > env > config > provider default ──
+        # ── Resolve base_url: param > env > config — no hardcoded default ──
         base_url = (
             base_url
             or os.environ.get(f"{provider.upper()}_BASE_URL")
             or config.get("base_url")
-            or provider_defaults["base_url"]
         )
+
+        if not base_url:
+            raise ValueError(
+                f"No base URL configured for provider '{provider}'.\n"
+                f"  • Set it in {get_config_path()}: {{\"base_url\": \"...\"}}\n"
+                f"  • Or pass --base-url flag (CLI)\n"
+                f"  • Or set {provider.upper()}_BASE_URL env var"
+            )
 
         self._client = openai.AsyncOpenAI(
             api_key=api_key,

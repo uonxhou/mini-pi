@@ -148,7 +148,6 @@ def resolve_key_value(raw: str) -> str:
 
 def resolve_api_key(
     provider: str,
-    env_var: str,
     auth: dict | None = None,
 ) -> str | None:
     """
@@ -156,16 +155,10 @@ def resolve_api_key(
 
     Priority (mirrors pi):
         1. auth.json entry for the provider
-        2. Environment variable (provider-specific, e.g. DEEPSEEK_API_KEY)
+        2. Environment variable ({PROVIDER}_API_KEY, e.g. DEEPSEEK_API_KEY)
         3. None (caller should raise a friendly error)
 
-    Args:
-        provider: Provider name (e.g. "deepseek", "openai")
-        env_var: Fallback environment variable name
-        auth: Pre-loaded auth dict (loads from file if None)
-
-    Returns:
-        Resolved API key string, or None if not found.
+    The env var name is derived from provider: f"{provider.upper()}_API_KEY".
     """
     if auth is None:
         auth = load_auth()
@@ -181,7 +174,8 @@ def resolve_api_key(
                 f"from auth.json: {e}"
             ) from e
 
-    # 2. Environment variable
+    # 2. Environment variable: {PROVIDER}_API_KEY
+    env_var = f"{provider.upper()}_API_KEY"
     env_val = os.environ.get(env_var)
     if env_val:
         return env_val
@@ -206,26 +200,19 @@ def detect_provider(model: str, base_url: str | None = None) -> str:
         return "deepseek"
     if "openai" in base_url_lower:
         return "openai"
+    if "minimaxi" in base_url_lower or "minimax" in base_url_lower:
+        return "minimax"
 
     # model name heuristics
     if model_lower.startswith("deepseek"):
         return "deepseek"
     if model_lower.startswith("gpt") or model_lower.startswith("o1") or model_lower.startswith("o3"):
         return "openai"
+    if model_lower.startswith("minimax"):
+        return "minimax"
 
     # default
     return "deepseek"
 
 
-# ─── Provider Defaults ─────────────────────────────────────────────────────
 
-PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
-    "deepseek": {
-        "base_url": "https://api.deepseek.com",
-        "env_var": "DEEPSEEK_API_KEY",
-    },
-    "openai": {
-        "base_url": "https://api.openai.com/v1",
-        "env_var": "OPENAI_API_KEY",
-    },
-}

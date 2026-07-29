@@ -27,11 +27,6 @@ from mini_pi.tools.edit import EditTool
 from mini_pi.tools.read import ReadTool
 from mini_pi.tools.write import WriteTool
 
-# ─── Defaults ────────────────────────────────────────────────────────────
-
-DEFAULT_MODEL = "deepseek-v4-pro"
-
-
 # ─── Color helpers ─────────────────────────────────────────────────────────
 
 
@@ -147,7 +142,7 @@ async def run_interactive(model: str, base_url: str | None, cwd: str, api_key: s
 
     print_banner()
     print(
-        f"{Colors.DIM}Model: {model} | Tools: {', '.join(tools.get_names())}{Colors.RESET}"
+        f"{Colors.DIM}Model: {client.model} | Base: {client._client.base_url} | Tools: {', '.join(tools.get_names())}{Colors.RESET}"
     )
     print(
         f"{Colors.DIM}Type 'exit' or Ctrl+C to quit, '!cmd' to run bash, '/help' for more{Colors.RESET}"
@@ -408,41 +403,47 @@ def main():
     # Load config for defaults
     config = load_config()
 
-    # Resolve model: CLI arg > env var > config file > hardcoded default
-    model = args.model or os.environ.get("MINI_PI_MODEL") or config.get("model") or DEFAULT_MODEL
-    # base_url is resolved by LLMClient; only pass CLI arg through if set
+    # Resolve model: CLI arg > env var > config file
+    model = args.model or os.environ.get("MINI_PI_MODEL") or config.get("model")
     base_url = args.base_url or None
     api_key = args.api_key or None
 
-    # Notify user when using the fallback default
-    if not (args.model or os.environ.get("MINI_PI_MODEL") or config.get("model")):
-        # First-run: no explicit model configured
+    # If model or base_url is missing, show setup guide
+    if not model:
         print()
         print(
-            f"{Colors.YELLOW}│  No model configured, using default: {DEFAULT_MODEL}{Colors.RESET}"
+            f"{Colors.YELLOW}{'=' * 60}{Colors.RESET}"
         )
         print(
-            f"{Colors.DIM}│  Set via: -m flag, MINI_PI_MODEL env var, or{Colors.RESET}"
-        )
-        print(
-            f"{Colors.DIM}│  config file at {get_config_path()}{Colors.RESET}"
+            f"{Colors.YELLOW}  No model configured.{Colors.RESET}"
         )
         print()
+        print(
+            f"  Configure {Colors.CYAN}{get_config_path()}{Colors.RESET} with your model and base URL:"
+        )
+        print()
+        print(f"  {Colors.GREEN}{{{Colors.RESET}")
+        print(f"    {Colors.GREEN}\"model\": \"your-model-name\",{Colors.RESET}")
+        print(f"    {Colors.GREEN}\"base_url\": \"https://api.example.com/v1\"{Colors.RESET}")
+        print(f"  {Colors.GREEN}}}{Colors.RESET}")
+        print()
+        print(
+            f"  Or set via: {Colors.CYAN}-m{Colors.RESET} flag, "
+            f"{Colors.CYAN}MINI_PI_MODEL{Colors.RESET} env var"
+        )
+        print(
+            f"{Colors.YELLOW}{'=' * 60}{Colors.RESET}"
+        )
+        print()
+        sys.exit(1)
 
-    # Check if API key is likely missing (no auth.json, no env var)
-    from mini_pi.config import load_auth
-    auth = load_auth()
-    has_key = bool(args.api_key or os.environ.get("DEEPSEEK_API_KEY") or auth)
-    has_config = bool(config or auth)
-    if not has_config and not has_key:
+    if not (config.get("base_url") or args.base_url):
+        print()
         print(
-            f"{Colors.YELLOW}│  First time? No configuration found.{Colors.RESET}"
+            f"{Colors.YELLOW}│  No base_url in config. Add it to {get_config_path()}{Colors.RESET}"
         )
         print(
-            f"{Colors.DIM}│  Run {Colors.CYAN}mini-pi -i{Colors.DIM} and type {Colors.CYAN}/setup{Colors.DIM} for setup guide{Colors.RESET}"
-        )
-        print(
-            f"{Colors.DIM}│  Or set {Colors.CYAN}DEEPSEEK_API_KEY{Colors.DIM} env var to get started quickly{Colors.RESET}"
+            f"{Colors.DIM}│  Or pass --base-url / -b flag{Colors.RESET}"
         )
         print()
 

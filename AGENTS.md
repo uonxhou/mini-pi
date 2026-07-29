@@ -23,8 +23,9 @@ mini-pi/
 │   └── ROADMAP.md          # 7-phase development plan
 └── src/mini_pi/
     ├── types.py            # Core types: messages, tools, events
+    ├── config.py            # Config & auth file handling, provider detection
     ├── llm/
-    │   └── client.py       # Anthropic API client (streaming + tool calling)
+    │   └── client.py       # OpenAI-compatible LLM client (streaming + tool calling)
     ├── tools/
     │   ├── base.py         # Tool base class + ToolRegistry
     │   ├── read.py         # Read files (text + images)
@@ -43,12 +44,12 @@ mini-pi/
 - Tools inherit from `BaseTool` and register via `ToolRegistry`
 - Streaming uses async generators yielding `AgentEvent`
 - CLI uses `argparse`, colored output via ANSI codes
-- Dependencies: `anthropic`, `httpx` (declared in pyproject.toml)
+- Dependencies: `openai`, `httpx` (declared in pyproject.toml)
 - **Documentation sync**: When project structure changes (new/renamed/moved files or modules), update the Architecture section in AGENTS.md and README.md accordingly
 
 ## Key Design Decisions
 
-1. **Anthropic-first**: The initial LLM client targets Anthropic's API. Multi-provider support is planned for Phase 3.
+1. **OpenAI-compatible first**: The LLM client uses the OpenAI SDK, making it compatible with any OpenAI-compatible provider (DeepSeek, MiniMax, OpenAI, etc.). No hardcoded provider defaults — all settings driven by config files, env vars, or CLI flags.
 2. **Streaming-first**: The `chat_stream()` method is the primary API; `chat()` is a convenience wrapper.
 3. **Tool schemas dual-format**: `ToolDefinition` can produce both Anthropic and OpenAI schema formats (ready for Phase 3).
 4. **Edit tool uniqueness**: The `edit` tool validates all oldText matches before applying any changes (matches pi's behavior).
@@ -67,8 +68,17 @@ uv run mini-pi "List Python files"
 uv run mini-pi -i
 
 # Requires
-export ANTHROPIC_API_KEY=sk-ant-...
+# API key via auth.json, env var ({PROVIDER}_API_KEY), or --api-key flag
 ```
+
+## Release Process
+
+When the user says "release", "publish", "发布", "完成新版本发布", or similar:
+
+1. **Update version**: Bump the `version` field in `pyproject.toml` (semantic versioning).
+2. **Commit**: `git add -A && git commit -m "release: vX.Y.Z"`
+3. **Tag**: `git tag vX.Y.Z`
+4. **Push**: `git push && git push --tags`
 
 ## Roadmap
 
