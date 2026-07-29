@@ -19,7 +19,7 @@ mini-pi/
 └── src/mini_pi/
     ├── types.py                 # Core type definitions (messages, tools, events)
     ├── llm/
-    │   └── client.py            # Anthropic LLM client with streaming & tool calling
+    │   └── client.py            # DeepSeek/OpenAI-compatible LLM client with streaming & tool calling
     ├── tools/
     │   ├── base.py              # Tool base class & registry
     │   ├── read.py              # Read files (text & images)
@@ -37,9 +37,9 @@ mini-pi/
 Core data structures: Content blocks (text, image, thinking, tool_call, tool_result), Messages (User, Assistant, ToolResult), Tool definitions with JSON Schema, Usage tracking.
 
 ### 2. LLM Client (`llm/client.py`)
-- Wraps Anthropic's API with streaming support
-- Converts internal message format to Anthropic's format
-- Handles tool call streaming (accumulates partial JSON)
+- Uses OpenAI SDK, defaulting to DeepSeek API
+- Converts internal message format to OpenAI-compatible format
+- Handles tool call streaming (accumulates partial function arguments)
 - Tracks token usage
 
 ### 3. Tools (`tools/`)
@@ -90,14 +90,17 @@ uv sync
 ## Setup
 
 ```bash
-# Set your Anthropic API key
-export ANTHROPIC_API_KEY=sk-ant-...
+# Set your DeepSeek API key
+export DEEPSEEK_API_KEY=sk-...
 
 # Run
 mini-pi "What files are in the current directory?"
 
 # Interactive mode
 mini-pi -i
+
+# Or use any OpenAI-compatible API
+mini-pi -m gpt-4o -b https://api.openai.com/v1
 ```
 
 ## Learning Path

@@ -1,14 +1,14 @@
 """
-LLM Client — abstraction over Anthropic's API.
+LLM Client — abstraction over OpenAI-compatible APIs (DeepSeek by default).
 
 Handles:
 - Message formatting (system prompt + conversation + tools)
-- Streaming responses
+- Streaming responses via SSE
 - Tool call parsing
 - Usage tracking
 
-Supports Anthropic as the primary provider (matching pi's default).
-OpenAI support can be added later via the same interface.
+Uses the OpenAI SDK, which is compatible with DeepSeek and other
+OpenAI-compatible providers.
 """
 
 from __future__ import annotations
@@ -18,12 +18,21 @@ import os
 from collections.abc import AsyncGenerator
 from typing import Any
 
-import anthropic
+import openai
 
-from mini_pi.config import load_config
+from mini_pi.config import (
+    PROVIDER_DEFAULTS,
+    detect_provider,
+    get_auth_path,
+    get_config_path,
+    load_auth,
+    load_config,
+    resolve_api_key,
+)
 from mini_pi.types import (
     AgentEvent,
     AssistantMessage,
+    ImageContent,
     Message,
     TextContent,
     ThinkingContent,
@@ -33,39 +42,46 @@ from mini_pi.types import (
 )
 
 # ─── Default System Prompt ─────────────────────────────────────────────────
-# Mirrors pi's philosophy: minimal, powerful, agentic
 
-DEFAULT_SYSTEM_PROMPT = """You are an expert coding assistant. You help users by reading files, executing commands, and editing code.
+DEFAULT_SYSTEM_PROMPT = """You are an expert coding assistant operating inside mini-pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
 
 Available tools:
 - read: Read file contents
-- bash: Execute bash commands
+- bash: Execute bash commands (ls, grep, find, etc.)
+- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call
 - write: Create or overwrite files
-- edit: Make precise file edits
 
 Guidelines:
 - Use bash for file operations like ls, rg, find
-- Use read to examine files
+- Use read to examine files instead of cat or sed.
+- Use edit for precise changes (edits[].oldText must match exactly)
+- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls
+- Keep edits[].oldText as small as possible while still being unique in the file
+- Use write only for new files or complete rewrites.
 - Be concise in your responses
 - Show file paths clearly when working with files
 """
-
 
 # ─── LLM Client ────────────────────────────────────────────────────────────
 
 
 class LLMClient:
     """
-    Unified LLM client. Currently wraps Anthropic's SDK.
+    Unified LLM client. Uses OpenAI SDK, defaults to DeepSeek API.
+
+    API key priority (pi-style):
+        1. api_key parameter (explicit)
+        2. ~/.mini-pi/auth.json entry for the detected provider
+        3. Environment variable (e.g. DEEPSEEK_API_KEY)
 
     Usage:
-        client = LLMClient(model="claude-sonnet-4-5-20250929")
+        client = LLMClient(model="deepseek-v4-pro")
         response = await client.chat(messages, tools)
     """
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = "deepseek-v4-pro",
         api_key: str | None = None,
         base_url: str | None = None,
         system_prompt: str | None = None,
@@ -75,93 +91,155 @@ class LLMClient:
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.max_tokens = max_tokens
 
-        # Load config file as fallback
+        # Load configs
         config = load_config()
+        auth = load_auth()
 
-        # Resolve API key: param > env var > config file
-        api_key = api_key or os.environ.get("ANTHROPIC_API_KEY") or config.get("api_key")
+        # Detect provider from model + base_url
+        provider = detect_provider(model, base_url)
+        provider_defaults = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS["deepseek"])
+
+        # ── Resolve API key: param > auth.json > env var (pi-style) ──
+        if api_key:
+            pass  # explicit param wins
+        else:
+            api_key = resolve_api_key(provider, provider_defaults["env_var"], auth)
+
         if not api_key:
             raise ValueError(
-                "ANTHROPIC_API_KEY not set. "
-                "Set in ~/.mini-pi/config.json, environment variable, or pass api_key parameter."
+                f"No API key found for provider '{provider}'.\n"
+                f"  • Set {provider_defaults['env_var']} environment variable, or\n"
+                f"  • Add to {get_auth_path()}:\n"
+                f'    {{"{provider}": {{"type": "api_key", "key": "sk-..."}}}}\n'
+                f"  • Pass --api-key flag (CLI) or api_key parameter (SDK)"
             )
 
-        # Resolve base_url: param > env var > config file
-        base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL") or config.get("base_url")
+        # ── Resolve base_url: param > env > config > provider default ──
+        base_url = (
+            base_url
+            or os.environ.get(f"{provider.upper()}_BASE_URL")
+            or config.get("base_url")
+            or provider_defaults["base_url"]
+        )
 
-        client_kwargs = {"api_key": api_key}
-        if base_url:
-            client_kwargs["base_url"] = base_url
-
-        self._client = anthropic.AsyncAnthropic(**client_kwargs)
+        self._client = openai.AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
 
     # ── Message Formatting ─────────────────────────────────────────────
 
-    def _to_anthropic_content(self, content) -> list[dict]:
-        """Convert our internal content blocks to Anthropic API format."""
+    def _to_openai_content(self, content) -> str | list[dict]:
+        """Convert our internal content blocks to OpenAI API format."""
         if isinstance(content, str):
-            return [{"type": "text", "text": content}]
+            return content
 
-        blocks = []
+        parts: list[dict] = []
         for block in content:
             if isinstance(block, TextContent):
-                blocks.append({"type": "text", "text": block.text})
+                parts.append({"type": "text", "text": block.text})
             elif isinstance(block, ThinkingContent):
-                blocks.append({"type": "thinking", "thinking": block.thinking})
-            elif isinstance(block, ToolCallContent):
-                blocks.append(
+                # OpenAI has no native thinking block; wrap in text
+                parts.append(
+                    {"type": "text", "text": f"[Thinking: {block.thinking}]"}
+                )
+            elif isinstance(block, ImageContent):
+                parts.append(
                     {
-                        "type": "tool_use",
-                        "id": block.id,
-                        "name": block.name,
-                        "input": block.arguments,
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{block.mime_type};base64,{block.data}"
+                        },
                     }
                 )
             elif isinstance(block, dict):
-                # Already formatted
-                blocks.append(block)
-        return blocks
+                # Already formatted (tool_use blocks from agent loop)
+                # These don't go into OpenAI user/assistant content directly
+                pass
+        return parts if parts else ""
 
-    def _to_anthropic_messages(self, messages: list[Message]) -> list[dict]:
-        """Convert our message list to Anthropic API format."""
-        anthropic_messages = []
+    def _to_openai_messages(self, messages: list[Message]) -> list[dict]:
+        """Convert our message list to OpenAI API format."""
+        openai_messages: list[dict] = []
+
         for msg in messages:
             if msg.role == "user":
-                content = msg.content if isinstance(msg.content, list) else msg.content
-                anthropic_messages.append(
-                    {
-                        "role": "user",
-                        "content": content
-                        if isinstance(content, str)
-                        else self._to_anthropic_content(content),
-                    }
-                )
-            elif msg.role == "assistant":
-                anthropic_messages.append(
-                    {
-                        "role": "assistant",
-                        "content": self._to_anthropic_content(msg.content),
-                    }
-                )
-            elif msg.role == "tool_result":
-                anthropic_messages.append(
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": msg.tool_call_id,
-                                "content": msg.content,
-                                "is_error": msg.is_error,
-                            }
-                        ],
-                    }
-                )
-        return anthropic_messages
+                content = msg.content
+                if isinstance(content, list):
+                    openai_messages.append(
+                        {"role": "user", "content": self._to_openai_content(content)}
+                    )
+                else:
+                    openai_messages.append({"role": "user", "content": content})
 
-    def _to_anthropic_tools(self, tools: list[ToolDefinition]) -> list[dict]:
-        """Convert our tool definitions to Anthropic API format."""
-        return [t.to_anthropic_schema() for t in tools]
+            elif msg.role == "assistant":
+                content_blocks = (
+                    msg.content if isinstance(msg.content, list) else [msg.content]
+                )
+
+                text_parts: list[str] = []
+                tool_calls: list[dict] = []
+
+                for block in content_blocks:
+                    if isinstance(block, TextContent):
+                        text_parts.append(block.text)
+                    elif isinstance(block, ThinkingContent):
+                        text_parts.append(f"[Thinking: {block.thinking}]")
+                    elif isinstance(block, ToolCallContent):
+                        tool_calls.append(
+                            {
+                                "id": block.id,
+                                "type": "function",
+                                "function": {
+                                    "name": block.name,
+                                    "arguments": json.dumps(
+                                        block.arguments, ensure_ascii=False
+                                    ),
+                                },
+                            }
+                        )
+                    elif isinstance(block, dict):
+                        # Already-formatted tool_use dict from agent loop
+                        if block.get("type") == "tool_use":
+                            tool_calls.append(
+                                {
+                                    "id": block["id"],
+                                    "type": "function",
+                                    "function": {
+                                        "name": block["name"],
+                                        "arguments": json.dumps(
+                                            block.get("input", {}), ensure_ascii=False
+                                        ),
+                                    },
+                                }
+                            )
+
+                msg_dict: dict[str, Any] = {"role": "assistant"}
+                if text_parts:
+                    msg_dict["content"] = (
+                        "\n".join(text_parts) if len(text_parts) > 1 else text_parts[0]
+                    )
+                else:
+                    msg_dict["content"] = None
+                if tool_calls:
+                    msg_dict["tool_calls"] = tool_calls
+
+                openai_messages.append(msg_dict)
+
+            elif msg.role == "tool_result":
+                openai_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": msg.tool_call_id,
+                        "content": msg.content,
+                    }
+                )
+
+        return openai_messages
+
+    def _to_openai_tools(self, tools: list[ToolDefinition]) -> list[dict]:
+        """Convert our tool definitions to OpenAI API format."""
+        return [t.to_openai_schema() for t in tools]
 
     # ── Streaming Chat ─────────────────────────────────────────────────
 
@@ -175,105 +253,119 @@ class LLMClient:
 
         Events emitted:
         - text_delta: a chunk of text
-        - thinking_delta: a chunk of thinking
-        - tool_call: a complete tool call (yielded when full tool_use block received)
+        - thinking_delta: a chunk of thinking (R1 models)
+        - tool_call: a complete tool call (yielded when finish_reason=tool_calls)
         - agent_end: final message with stop_reason and usage
         - error: an error occurred
         """
         try:
-            anthropic_messages = self._to_anthropic_messages(messages)
-            anthropic_tools = self._to_anthropic_tools(tools) if tools else None
+            openai_messages = self._to_openai_messages(messages)
+            openai_tools = self._to_openai_tools(tools) if tools else None
 
-            async with self._client.messages.stream(
+            stream = await self._client.chat.completions.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
-                system=self.system_prompt,
-                messages=anthropic_messages,
-                tools=anthropic_tools,
-            ) as stream:
-                # Accumulate content blocks as they stream in
-                text_accumulator = ""
-                current_tool_call: dict[str, Any] | None = None
+                messages=openai_messages,
+                tools=openai_tools,
+                stream=True,
+                # Include reasoning_content for deepseek-reasoner models
+                extra_body={"include_reasoning": True}
+                if "reasoner" in self.model
+                else None,
+            )
 
-                async for event in stream:
-                    if event.type == "content_block_start":
-                        block = event.content_block
-                        if block.type == "tool_use":
-                            current_tool_call = {
-                                "id": block.id,
-                                "name": block.name,
-                                "input": "",
-                                "input_json": {},
+            text_accumulator = ""
+            # Tool calls accumulate across chunks by index
+            tool_calls_accumulator: dict[int, dict] = {}
+
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+
+                delta = chunk.choices[0].delta
+                if delta is None:
+                    continue
+
+                # ── Text ──────────────────────────────────────────
+                if delta.content:
+                    text_accumulator += delta.content
+                    yield AgentEvent(type="text_delta", data=delta.content)
+
+                # ── Reasoning (DeepSeek R1) ───────────────────────
+                reasoning = getattr(delta, "reasoning_content", None)
+                if reasoning:
+                    yield AgentEvent(type="thinking_delta", data=reasoning)
+
+                # ── Tool Calls (accumulate) ───────────────────────
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in tool_calls_accumulator:
+                            tool_calls_accumulator[idx] = {
+                                "id": "",
+                                "name": "",
+                                "arguments": "",
                             }
 
-                    elif event.type == "content_block_delta":
-                        delta = event.delta
-                        if delta.type == "text_delta":
-                            text_accumulator += delta.text
-                            yield AgentEvent(type="text_delta", data=delta.text)
-                        elif delta.type == "thinking_delta":
-                            yield AgentEvent(type="thinking_delta", data=delta.thinking)
-                        elif delta.type == "input_json_delta" and current_tool_call:
-                            current_tool_call["input"] += delta.partial_json
+                        acc = tool_calls_accumulator[idx]
+                        if tc_delta.id:
+                            acc["id"] = tc_delta.id
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                acc["name"] = tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                acc["arguments"] += tc_delta.function.arguments
 
-                    elif event.type == "content_block_stop":
-                        if current_tool_call:
-                            # Parse accumulated JSON
-                            try:
-                                current_tool_call["input_json"] = json.loads(
-                                    current_tool_call["input"]
-                                )
-                            except json.JSONDecodeError:
-                                current_tool_call["input_json"] = {}
-
-                            yield AgentEvent(
-                                type="tool_call",
-                                data=ToolCallContent(
-                                    id=current_tool_call["id"],
-                                    name=current_tool_call["name"],
-                                    arguments=current_tool_call["input_json"],
-                                ),
-                            )
-                            current_tool_call = None
-
-                    elif event.type == "message_stop":
-                        # Build final assistant message
-                        assistant_msg = AssistantMessage(
-                            content=[],
-                            model=self.model,
-                            stop_reason="end_turn",
+                # ── Finish ────────────────────────────────────────
+                finish_reason = chunk.choices[0].finish_reason
+                if finish_reason:
+                    # Yield accumulated tool calls
+                    for idx in sorted(tool_calls_accumulator.keys()):
+                        acc = tool_calls_accumulator[idx]
+                        try:
+                            args = json.loads(acc["arguments"])
+                        except json.JSONDecodeError:
+                            args = {}
+                        yield AgentEvent(
+                            type="tool_call",
+                            data=ToolCallContent(
+                                id=acc["id"],
+                                name=acc["name"],
+                                arguments=args,
+                            ),
                         )
 
-                        if text_accumulator:
-                            assistant_msg.content.append(
-                                TextContent(text=text_accumulator)
-                            )
+                    # Map finish_reason
+                    stop_reason_map = {
+                        "stop": "end_turn",
+                        "tool_calls": "tool_use",
+                        "length": "max_tokens",
+                    }
+                    mapped_reason = stop_reason_map.get(
+                        finish_reason, finish_reason
+                    )
 
-                        if event.message:
-                            assistant_msg.stop_reason = (
-                                event.message.stop_reason or "end_turn"
-                            )
-                            if event.message.usage:
-                                assistant_msg.usage = Usage(
-                                    input_tokens=event.message.usage.input_tokens,
-                                    output_tokens=event.message.usage.output_tokens,
-                                    cache_read_tokens=getattr(
-                                        event.message.usage,
-                                        "cache_read_input_tokens",
-                                        0,
-                                    )
-                                    or 0,
-                                    cache_write_tokens=getattr(
-                                        event.message.usage,
-                                        "cache_creation_input_tokens",
-                                        0,
-                                    )
-                                    or 0,
-                                )
+                    # Build final assistant message
+                    assistant_msg = AssistantMessage(
+                        content=[],
+                        model=self.model,
+                        stop_reason=mapped_reason,
+                    )
 
-                        yield AgentEvent(type="agent_end", data=assistant_msg)
+                    if text_accumulator:
+                        assistant_msg.content.append(
+                            TextContent(text=text_accumulator)
+                        )
 
-        except anthropic.APIStatusError as e:
+                    if chunk.usage:
+                        assistant_msg.usage = Usage(
+                            input_tokens=chunk.usage.prompt_tokens,
+                            output_tokens=chunk.usage.completion_tokens,
+                        )
+
+                    yield AgentEvent(type="agent_end", data=assistant_msg)
+
+        except openai.APIError as e:
             yield AgentEvent(
                 type="error",
                 data=f"API Error ({e.status_code}): {e.message}",
@@ -291,7 +383,9 @@ class LLMClient:
         """
         Non-streaming chat. Collects all events and returns the final message.
         """
-        result = AssistantMessage(content=[], model=self.model, stop_reason="end_turn")
+        result = AssistantMessage(
+            content=[], model=self.model, stop_reason="end_turn"
+        )
         tool_calls: list[ToolCallContent] = []
 
         async for event in self.chat_stream(messages, tools):
@@ -303,7 +397,6 @@ class LLMClient:
                 tool_calls.append(event.data)
             elif event.type == "agent_end":
                 result = event.data
-                # Merge in any tool calls we captured
                 for tc in tool_calls:
                     if not any(
                         isinstance(c, ToolCallContent) and c.id == tc.id

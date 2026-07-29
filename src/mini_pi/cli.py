@@ -8,7 +8,7 @@ Usage:
     mini-pi --interactive
 
 Environment:
-    ANTHROPIC_API_KEY    Required. Your Anthropic API key.
+    DEEPSEEK_API_KEY    Required. Your DeepSeek API key.
 """
 
 from __future__ import annotations
@@ -19,13 +19,18 @@ import os
 import sys
 
 from mini_pi.agent.loop import AgentLoop
-from mini_pi.config import get_config_path, load_config
+from mini_pi.config import get_auth_path, get_config_path, load_config
 from mini_pi.llm.client import LLMClient
 from mini_pi.tools.base import ToolRegistry
 from mini_pi.tools.bash import BashTool
 from mini_pi.tools.edit import EditTool
 from mini_pi.tools.read import ReadTool
 from mini_pi.tools.write import WriteTool
+
+# ─── Defaults ────────────────────────────────────────────────────────────
+
+DEFAULT_MODEL = "deepseek-v4-pro"
+
 
 # ─── Color helpers ─────────────────────────────────────────────────────────
 
@@ -47,7 +52,7 @@ def print_banner():
     """Print mini-pi startup banner."""
     print(f"{Colors.CYAN}{Colors.BOLD}╭─────────────────────────────╮{Colors.RESET}")
     print(
-        f"{Colors.CYAN}{Colors.BOLD}│{Colors.RESET}      {Colors.BOLD}mini-pi v0.1.0{Colors.RESET}       {Colors.CYAN}{Colors.BOLD}│{Colors.RESET}"
+        f"{Colors.CYAN}{Colors.BOLD}│{Colors.RESET}      {Colors.BOLD}mini-pi v0.2.0{Colors.RESET}       {Colors.CYAN}{Colors.BOLD}│{Colors.RESET}"
     )
     print(
         f"{Colors.CYAN}{Colors.BOLD}│{Colors.RESET}  A minimal coding agent   {Colors.CYAN}{Colors.BOLD}│{Colors.RESET}"
@@ -79,10 +84,10 @@ def print_tool_event(event_type: str, data: dict) -> None:
             print(f"{Colors.GREEN}   ✓ {first_line}{Colors.RESET}")
 
 
-async def run_prompt(prompt: str, model: str, base_url: str | None, cwd: str) -> None:
+async def run_prompt(prompt: str, model: str, base_url: str | None, cwd: str, api_key: str | None = None) -> None:
     """Run a single prompt and stream the response."""
     # Setup
-    client = LLMClient(model=model, base_url=base_url)
+    client = LLMClient(model=model, base_url=base_url, api_key=api_key)
     tools = ToolRegistry(
         [
             ReadTool(cwd=cwd),
@@ -127,9 +132,9 @@ async def run_prompt(prompt: str, model: str, base_url: str | None, cwd: str) ->
         print(f"\n{Colors.YELLOW}Interrupted.{Colors.RESET}")
 
 
-async def run_interactive(model: str, base_url: str | None, cwd: str) -> None:
+async def run_interactive(model: str, base_url: str | None, cwd: str, api_key: str | None = None) -> None:
     """Run an interactive session with multi-turn conversation."""
-    client = LLMClient(model=model, base_url=base_url)
+    client = LLMClient(model=model, base_url=base_url, api_key=api_key)
     tools = ToolRegistry(
         [
             ReadTool(cwd=cwd),
@@ -237,24 +242,130 @@ def print_help():
 """)
 
 
+def print_setup_guide():
+    """Print a comprehensive setup and configuration guide."""
+    auth_path = get_auth_path()
+    config_path = get_config_path()
+
+    print(f"""
+{Colors.BOLD}{'=' * 60}{Colors.RESET}
+{Colors.BOLD}  mini-pi Setup Guide{Colors.RESET}
+{Colors.BOLD}{'=' * 60}{Colors.RESET}
+
+{Colors.BOLD}Step 1 — Get an API Key{Colors.RESET}
+  {Colors.DIM}DeepSeek:{Colors.RESET}  https://platform.deepseek.com/api_keys
+  {Colors.DIM}OpenAI:{Colors.RESET}    https://platform.openai.com/api-keys
+
+{Colors.BOLD}Step 2 — Configure (pick one){Colors.RESET}
+""")
+
+    # Option A: env var
+    print(f"""
+  {Colors.CYAN}▸ Option A: Environment variable (quickest){Colors.RESET}
+    Add to your ~/.zshrc or ~/.bashrc:
+
+      {Colors.GREEN}export DEEPSEEK_API_KEY=sk-...{Colors.RESET}
+
+    Then restart your terminal or run: {Colors.GREEN}source ~/.zshrc{Colors.RESET}
+""")
+
+    # Option B: auth.json
+    print(f"""
+  {Colors.CYAN}▸ Option B: auth.json (pi-style, recommended){Colors.RESET}
+    Create {auth_path}:
+
+      {Colors.GREEN}mkdir -p {auth_path.parent}
+    cat > {auth_path} << 'EOF'
+    {{
+      "deepseek": {{"type": "api_key", "key": "sk-..."}}
+    }}
+    EOF
+    chmod 600 {auth_path}{Colors.RESET}
+
+    Or if you use a password manager:
+      {Colors.DIM}"key": "!op read op://vault/deepseek/api-key"{Colors.RESET}
+""")
+
+    # Option C: CLI flag
+    print(f"""
+  {Colors.CYAN}▸ Option C: CLI flag (one-off){Colors.RESET}
+      {Colors.GREEN}mini-pi -k sk-... "your prompt"{Colors.RESET}
+""")
+
+    # Advanced
+    print(f"""
+{Colors.BOLD}Advanced{Colors.RESET}
+  {Colors.DIM}Config file:{Colors.RESET}  {config_path}
+    Model and base URL defaults:
+      {{"model": "deepseek-reasoner", "base_url": "https://api.deepseek.com"}}
+
+  {Colors.DIM}Multiple providers in auth.json:{Colors.RESET}
+    {{
+      "deepseek": {{"type": "api_key", "key": "sk-..."}},
+      "openai":   {{"type": "api_key", "key": "sk-..."}}
+    }}
+
+  {Colors.DIM}Switch provider on the fly:{Colors.RESET}
+    {Colors.GREEN}mini-pi -m gpt-4o -b https://api.openai.com/v1{Colors.RESET}
+
+  {Colors.DIM}Key resolution priority:{Colors.RESET}
+    {Colors.CYAN}CLI --api-key  >  auth.json  >  environment variable{Colors.RESET}
+
+{Colors.BOLD}{'=' * 60}{Colors.RESET}
+""")
+
+
 def print_config_info(client: LLMClient):
     """Print current configuration (masking sensitive values)."""
+    from mini_pi.config import load_auth
+
     config = load_config()
-    api_key = config.get("api_key", "")
-    masked_key = api_key[:10] + "..." + api_key[-4:] if len(api_key) > 14 else "***"
+    auth = load_auth()
+    provider = config.get("provider") or "deepseek"
+
+    # Mask API key from auth.json or env
+    auth_entry = auth.get(provider, {})
+    key_source = "not set"
+    if auth_entry.get("key"):
+        raw = auth_entry["key"]
+        if len(raw) > 14:
+            key_source = raw[:10] + "..." + raw[-4:]
+        else:
+            key_source = "***"
+        key_source += " (auth.json)"
+    elif os.environ.get("DEEPSEEK_API_KEY"):
+        raw = os.environ["DEEPSEEK_API_KEY"]
+        if len(raw) > 14:
+            key_source = raw[:10] + "..." + raw[-4:]
+        else:
+            key_source = "***"
+        key_source += " (env)"
 
     print(f"""
 {Colors.BOLD}Configuration:{Colors.RESET}
+  {Colors.CYAN}Auth file:{Colors.RESET}   {get_auth_path()}
   {Colors.CYAN}Config file:{Colors.RESET}  {get_config_path()}
+  {Colors.CYAN}Provider:{Colors.RESET}     {provider}
   {Colors.CYAN}Model:{Colors.RESET}        {client.model}
-  {Colors.CYAN}Base URL:{Colors.RESET}     {os.environ.get('ANTHROPIC_BASE_URL') or config.get('base_url') or 'Anthropic default'}
-  {Colors.CYAN}API Key:{Colors.RESET}      {masked_key if api_key else 'from env var' if os.environ.get('ANTHROPIC_API_KEY') else 'not set'}
+  {Colors.CYAN}Base URL:{Colors.RESET}     {client._client.base_url}
+  {Colors.CYAN}API Key:{Colors.RESET}      {key_source}
 """)
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="mini-pi: A minimal AI coding agent",
+        epilog=(
+            "Configuration files:\n"
+            f"  Auth:   {get_auth_path()}\n"
+            f"  Config: {get_config_path()}\n"
+            "\n"
+            "Quick start (no config needed):\n"
+            "  export DEEPSEEK_API_KEY=sk-...\n"
+            "  mini-pi \"What files are here?\"\n"
+            "  mini-pi -i  # interactive mode"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "prompt",
@@ -271,13 +382,19 @@ def main():
         "-m",
         "--model",
         default=None,
-        help="Model to use",
+        help="Model to use (default: deepseek-v4-pro)",
     )
     parser.add_argument(
         "-b",
         "--base-url",
         default=None,
-        help="API base URL (e.g. MiniMax endpoint). Default: from config/env or Anthropic's default",
+        help="API base URL for OpenAI-compatible providers. Default: https://api.deepseek.com",
+    )
+    parser.add_argument(
+        "-k",
+        "--api-key",
+        default=None,
+        help="API key (overrides auth.json and environment)",
     )
     parser.add_argument(
         "-c",
@@ -292,20 +409,59 @@ def main():
     config = load_config()
 
     # Resolve model: CLI arg > env var > config file > hardcoded default
-    model = args.model or os.environ.get("MINI_PI_MODEL") or config.get("model")
-    base_url = args.base_url or os.environ.get("ANTHROPIC_BASE_URL") or config.get("base_url")
+    model = args.model or os.environ.get("MINI_PI_MODEL") or config.get("model") or DEFAULT_MODEL
+    # base_url is resolved by LLMClient; only pass CLI arg through if set
+    base_url = args.base_url or None
+    api_key = args.api_key or None
 
-    if model is None:
-        raise ValueError("Model must be specified")
+    # Notify user when using the fallback default
+    if not (args.model or os.environ.get("MINI_PI_MODEL") or config.get("model")):
+        # First-run: no explicit model configured
+        print()
+        print(
+            f"{Colors.YELLOW}│  No model configured, using default: {DEFAULT_MODEL}{Colors.RESET}"
+        )
+        print(
+            f"{Colors.DIM}│  Set via: -m flag, MINI_PI_MODEL env var, or{Colors.RESET}"
+        )
+        print(
+            f"{Colors.DIM}│  config file at {get_config_path()}{Colors.RESET}"
+        )
+        print()
 
-    if args.interactive:
-        asyncio.run(run_interactive(model, base_url, args.cwd))
-    elif args.prompt:
-        prompt = " ".join(args.prompt)
-        asyncio.run(run_prompt(prompt, model, base_url, args.cwd))
-    else:
-        # No prompt and not interactive: run interactive by default
-        asyncio.run(run_interactive(model, base_url, args.cwd))
+    # Check if API key is likely missing (no auth.json, no env var)
+    from mini_pi.config import load_auth
+    auth = load_auth()
+    has_key = bool(args.api_key or os.environ.get("DEEPSEEK_API_KEY") or auth)
+    has_config = bool(config or auth)
+    if not has_config and not has_key:
+        print(
+            f"{Colors.YELLOW}│  First time? No configuration found.{Colors.RESET}"
+        )
+        print(
+            f"{Colors.DIM}│  Run {Colors.CYAN}mini-pi -i{Colors.DIM} and type {Colors.CYAN}/setup{Colors.DIM} for setup guide{Colors.RESET}"
+        )
+        print(
+            f"{Colors.DIM}│  Or set {Colors.CYAN}DEEPSEEK_API_KEY{Colors.DIM} env var to get started quickly{Colors.RESET}"
+        )
+        print()
+
+    try:
+        if args.interactive:
+            asyncio.run(run_interactive(model, base_url, args.cwd, api_key))
+        elif args.prompt:
+            prompt = " ".join(args.prompt)
+            asyncio.run(run_prompt(prompt, model, base_url, args.cwd, api_key))
+        else:
+            # No prompt and not interactive: run interactive by default
+            asyncio.run(run_interactive(model, base_url, args.cwd, api_key))
+    except ValueError as e:
+        print(f"{Colors.RED}Error: {e}{Colors.RESET}")
+        print()
+        print(
+            f"{Colors.DIM}Run {Colors.CYAN}mini-pi --help{Colors.DIM} for quick start instructions.{Colors.RESET}"
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
