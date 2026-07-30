@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import readline
 import sys
 
 from mini_pi.agent.loop import AgentLoop
@@ -47,7 +48,7 @@ def print_banner():
     """Print mini-pi startup banner."""
     print(f"{Colors.CYAN}{Colors.BOLD}╭─────────────────────────────╮{Colors.RESET}")
     print(
-        f"{Colors.CYAN}{Colors.BOLD}│{Colors.RESET}      {Colors.BOLD}mini-pi v0.2.0{Colors.RESET}       {Colors.CYAN}{Colors.BOLD}│{Colors.RESET}"
+        f"{Colors.CYAN}{Colors.BOLD}│{Colors.RESET}      {Colors.BOLD}mini-pi v0.3.1{Colors.RESET}       {Colors.CYAN}{Colors.BOLD}│{Colors.RESET}"
     )
     print(
         f"{Colors.CYAN}{Colors.BOLD}│{Colors.RESET}  A minimal coding agent   {Colors.CYAN}{Colors.BOLD}│{Colors.RESET}"
@@ -212,7 +213,13 @@ async def run_interactive(model: str, base_url: str | None, cwd: str, api_key: s
                     print(f"\n{Colors.RED}Error: {event.data}{Colors.RESET}")
 
         except KeyboardInterrupt:
-            print(f"\n{Colors.YELLOW}Interrupted. Type 'exit' to quit.{Colors.RESET}")
+            print(f"\n{Colors.YELLOW}Interrupted.{Colors.RESET}")
+            # Double Ctrl+C → exit
+            try:
+                input(f"{Colors.DIM}Press Enter to continue or Ctrl+C again to quit...{Colors.RESET}")
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{Colors.DIM}Goodbye!{Colors.RESET}")
+                break
         except EOFError:
             print(f"\n{Colors.DIM}Goodbye!{Colors.RESET}")
             break
@@ -456,6 +463,9 @@ def main():
         else:
             # No prompt and not interactive: run interactive by default
             asyncio.run(run_interactive(model, base_url, args.cwd, api_key))
+    except KeyboardInterrupt:
+        print()
+        sys.exit(0)
     except ValueError as e:
         print(f"{Colors.RED}Error: {e}{Colors.RESET}")
         print()

@@ -50,7 +50,7 @@ mini-pi/
 ## Key Design Decisions
 
 1. **OpenAI-compatible first**: The LLM client uses the OpenAI SDK, making it compatible with any OpenAI-compatible provider (DeepSeek, MiniMax, OpenAI, etc.). No hardcoded provider defaults — all settings driven by config files, env vars, or CLI flags.
-2. **Streaming-first**: The `chat_stream()` method is the primary API; `chat()` is a convenience wrapper.
+2. **Streaming-first**: The `chat_stream()` method is the primary -; `chat()` is a convenience wrapper.
 3. **Tool schemas dual-format**: `ToolDefinition` can produce both Anthropic and OpenAI schema formats (ready for Phase 3).
 4. **Edit tool uniqueness**: The `edit` tool validates all oldText matches before applying any changes (matches pi's behavior).
 5. **Agent yield events**: The loop yields `AgentEvent` objects to the caller, decoupling streaming from UI.
