@@ -19,11 +19,21 @@ jobs:
       # whether a failure is universal or confined to one OS.
       fail-fast: false
       matrix:
-        # Boundaries of the supported range declared in pyproject.toml.
-        # mini-pi once shipped a release that could not start on Windows at
-        # all, so every OS is exercised, not just Linux.
+        # Every OS at both ends of the supported range: mini-pi once shipped a
+        # release that could not start on Windows at all, so platform coverage
+        # is the priority.
         os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.10", "3.14"]
+        # Fill in the middle on Linux only. Cheap (~15s each) and it keeps the
+        # Python classifiers in pyproject.toml honest — every version claimed
+        # there is a version actually exercised here.
+        include:
+          - os: ubuntu-latest
+            python: "3.11"
+          - os: ubuntu-latest
+            python: "3.12"
+          - os: ubuntu-latest
+            python: "3.13"
 
     steps:
       - uses: actions/checkout@v4

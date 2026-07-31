@@ -2,6 +2,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/mini-pi.svg)](https://pypi.org/project/mini-pi/)
 [![Python](https://img.shields.io/pypi/pyversions/mini-pi.svg)](https://pypi.org/project/mini-pi/)
+[![Tests](https://github.com/uonxhou/mini-pi/actions/workflows/test.yml/badge.svg)](https://github.com/uonxhou/mini-pi/actions/workflows/test.yml)
 
 A minimal AI coding agent, built from scratch for learning how AI coding agents work.
 
