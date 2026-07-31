@@ -16,8 +16,19 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import readline
 import sys
+
+# Imported for its side effect only: importing `readline` transparently upgrades
+# the built-in input() with line editing and history. We never call it directly.
+#
+# `readline` is a Unix-only stdlib module, absent on Windows. There we depend on
+# pyreadline3 (declared in pyproject.toml), which registers itself under the same
+# name. The guard keeps mini-pi importable even without it — one-shot mode needs
+# no line editing at all, so degrading is strictly better than crashing at import.
+try:
+    import readline  # noqa: F401
+except ImportError:
+    pass
 
 from mini_pi.agent.loop import AgentLoop
 from mini_pi.config import get_auth_path, get_config_path, load_config

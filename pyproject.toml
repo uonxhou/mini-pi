@@ -1,6 +1,6 @@
 [project]
 name = "mini-pi"
-version = "0.3.2"
+version = "0.3.3"
 description = "A minimal AI coding agent — built from scratch for learning"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -22,6 +22,9 @@ classifiers = [
 dependencies = [
     "openai>=1.0.0",
     "httpx>=0.28.0",
+    # Windows has no stdlib `readline`; pyreadline3 provides a drop-in replacement
+    # so interactive mode keeps history and Ctrl+R there.
+    "pyreadline3>=3.5; sys_platform == 'win32'",
 ]
 
 [project.urls]
