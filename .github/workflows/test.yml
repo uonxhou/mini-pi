@@ -1,0 +1,35 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Lets publish.yml reuse this exact matrix instead of duplicating it —
+  # the tests gating a release must be the same ones that run on main.
+  workflow_call:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # Never cancel siblings on first failure: platform-specific breakage is
+      # exactly what this matrix exists to find, and cancelling would hide
+      # whether a failure is universal or confined to one OS.
+      fail-fast: false
+      matrix:
+        # Boundaries of the supported range declared in pyproject.toml.
+        # mini-pi once shipped a release that could not start on Windows at
+        # all, so every OS is exercised, not just Linux.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Run tests
+        run: uv run --python ${{ matrix.python }} --group dev pytest

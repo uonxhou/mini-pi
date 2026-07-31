@@ -6,8 +6,15 @@ on:
   workflow_dispatch:  # 允许手动触发（用于测试或补发）
 
 jobs:
+  # Gate: the full test matrix must pass before anything reaches PyPI.
+  # A PyPI version number can never be reused, so a bad publish is permanent —
+  # worth blocking on. Reuses test.yml so the gate cannot drift from CI.
+  test:
+    uses: ./.github/workflows/test.yml
+
   publish:
     name: Build & publish to PyPI
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # PyPI OIDC 可信发布
