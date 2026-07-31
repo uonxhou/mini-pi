@@ -339,21 +339,24 @@ class LLMClient:
                 # ── Finish ────────────────────────────────────────
                 finish_reason = chunk.choices[0].finish_reason
                 if finish_reason:
-                    # Yield accumulated tool calls
+                    # Build tool call blocks once, then both stream them and
+                    # keep them for the final message — the assistant message
+                    # must carry its own tool calls, or the next request would
+                    # reference tool results with no matching call.
+                    tool_call_blocks: list[ToolCallContent] = []
                     for idx in sorted(tool_calls_accumulator.keys()):
                         acc = tool_calls_accumulator[idx]
                         try:
                             args = json.loads(acc["arguments"])
                         except json.JSONDecodeError:
                             args = {}
-                        yield AgentEvent(
-                            type="tool_call",
-                            data=ToolCallContent(
-                                id=acc["id"],
-                                name=acc["name"],
-                                arguments=args,
-                            ),
+                        tc = ToolCallContent(
+                            id=acc["id"],
+                            name=acc["name"],
+                            arguments=args,
                         )
+                        tool_call_blocks.append(tc)
+                        yield AgentEvent(type="tool_call", data=tc)
 
                     # Map finish_reason
                     stop_reason_map = {
@@ -365,7 +368,9 @@ class LLMClient:
                         finish_reason, finish_reason
                     )
 
-                    # Build final assistant message
+                    # Build final assistant message. This is the single source
+                    # of truth for what goes into conversation history — callers
+                    # must not rebuild .content from streamed deltas.
                     assistant_msg = AssistantMessage(
                         content=[],
                         model=self.model,
@@ -376,6 +381,11 @@ class LLMClient:
                         assistant_msg.content.append(
                             TextContent(text=text_accumulator)
                         )
+
+                    # Reasoning is intentionally NOT stored: providers reject or
+                    # ignore replayed reasoning_content, and re-sending it would
+                    # waste tokens. It is still streamed live to the UI.
+                    assistant_msg.content.extend(tool_call_blocks)
 
                     if chunk.usage:
                         assistant_msg.usage = Usage(

@@ -80,8 +80,8 @@ class AgentLoop:
             self.turns += 1
             yield AgentEvent(type="turn_start", data={"turn": self.turns})
 
-            # Collect tool calls from this turn
-            assistant_content: list = []
+            # Collect tool calls from this turn (for execution below — the
+            # assistant message itself is built by the client)
             tool_calls: list[ToolCallContent] = []
 
             # Call the LLM
@@ -89,26 +89,14 @@ class AgentLoop:
 
             async for event in self.client.chat_stream(self.messages, tool_defs):
                 if event.type == "text_delta":
-                    assistant_content.append({"type": "text", "text": event.data})
                     yield event
 
                 elif event.type == "thinking_delta":
-                    assistant_content.append(
-                        {"type": "thinking", "thinking": event.data}
-                    )
                     yield event
 
                 elif event.type == "tool_call":
                     tc = event.data
                     tool_calls.append(tc)
-                    assistant_content.append(
-                        {
-                            "type": "tool_use",
-                            "id": tc.id,
-                            "name": tc.name,
-                            "input": tc.arguments,
-                        }
-                    )
                     yield AgentEvent(
                         type="tool_call",
                         data={"name": tc.name, "arguments": tc.arguments},
@@ -116,8 +104,10 @@ class AgentLoop:
 
                 elif event.type == "agent_end":
                     assistant_msg: AssistantMessage = event.data
-                    # Use the accumulated content for better accuracy
-                    assistant_msg.content = assistant_content
+                    # Append as-is. Rebuilding .content from streamed deltas
+                    # here would drop the client's typed content blocks and
+                    # produce an assistant message with neither content nor
+                    # tool_calls, which the API rejects on the *next* request.
                     self.messages.append(assistant_msg)
 
                     # Track usage
