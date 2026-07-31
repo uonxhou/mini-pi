@@ -30,6 +30,7 @@ try:
 except ImportError:
     pass
 
+from mini_pi import __version__
 from mini_pi.agent.loop import AgentLoop
 from mini_pi.config import get_auth_path, get_config_path, load_config
 from mini_pi.llm.client import LLMClient
@@ -57,14 +58,18 @@ class Colors:
 
 def print_banner():
     """Print mini-pi startup banner."""
-    print(f"{Colors.CYAN}{Colors.BOLD}╭─────────────────────────────╮{Colors.RESET}")
-    print(
-        f"{Colors.CYAN}{Colors.BOLD}│{Colors.RESET}      {Colors.BOLD}mini-pi v0.3.1{Colors.RESET}       {Colors.CYAN}{Colors.BOLD}│{Colors.RESET}"
-    )
-    print(
-        f"{Colors.CYAN}{Colors.BOLD}│{Colors.RESET}  A minimal coding agent   {Colors.CYAN}{Colors.BOLD}│{Colors.RESET}"
-    )
-    print(f"{Colors.CYAN}{Colors.BOLD}╰─────────────────────────────╯{Colors.RESET}")
+    width = 29
+    c, b, r = Colors.CYAN, Colors.BOLD, Colors.RESET
+    lines = [(f"mini-pi v{__version__}", True), ("A minimal coding agent", False)]
+
+    print(f"{c}{b}╭{'─' * width}╮{r}")
+    for text, bold in lines:
+        # Centre on the raw text, then style — padding must not count ANSI codes.
+        pad = max(0, width - len(text))
+        left, right = pad // 2, pad - pad // 2
+        styled = f"{b}{text}{r}" if bold else text
+        print(f"{c}{b}│{r}{' ' * left}{styled}{' ' * right}{c}{b}│{r}")
+    print(f"{c}{b}╰{'─' * width}╯{r}")
     print()
 
 

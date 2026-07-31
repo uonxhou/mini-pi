@@ -211,7 +211,7 @@ wheels = [
 
 [[package]]
 name = "mini-pi"
-version = "0.3.3"
+version = "0.3.4"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
