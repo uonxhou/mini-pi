@@ -84,6 +84,11 @@ class AssistantMessage:
     content: list[TextContent | ThinkingContent | ToolCallContent] = field(
         default_factory=list
     )
+    # Top-level reasoning text from providers that stream it (DeepSeek v4+).
+    # Distinct from content: v4 expects it as a sibling of `content` on the
+    # wire, and **requires** it to be round-tripped in subsequent requests
+    # when the assistant produced tool calls (else HTTP 400).
+    reasoning_content: str | None = None
     model: str = ""
     stop_reason: str = ""  # "end_turn", "tool_use", "max_tokens", "stop_sequence"
     usage: Usage | None = None

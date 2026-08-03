@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, cast
 
 import openai
 
@@ -91,6 +91,7 @@ class LLMClient:
         base_url: str | None = None,
         system_prompt: str | None = None,
         max_tokens: int = 16000,
+        thinking: bool = True,
     ):
         if not model:
             raise ValueError(
@@ -101,6 +102,7 @@ class LLMClient:
         self.model = model
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.max_tokens = max_tokens
+        self.thinking = thinking
 
         # Load configs
         config = load_config()
@@ -243,6 +245,12 @@ class LLMClient:
                     msg_dict["content"] = None
                 if tool_calls:
                     msg_dict["tool_calls"] = tool_calls
+                # v4+ carries reasoning as a top-level field on assistant
+                # messages, not inside the content array. Always emit when
+                # non-empty: required for tool turns, ignored for non-tool
+                # turns (so it's safe to send unconditionally).
+                if msg.reasoning_content:
+                    msg_dict["reasoning_content"] = msg.reasoning_content
 
                 openai_messages.append(msg_dict)
 
@@ -285,16 +293,17 @@ class LLMClient:
             stream = await self._client.chat.completions.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
-                messages=openai_messages,
-                tools=openai_tools,
+                messages=cast(Any, openai_messages),
+                tools=cast(Any, openai_tools),
                 stream=True,
-                # Include reasoning_content for deepseek-reasoner models
-                extra_body={"include_reasoning": True}
-                if "reasoner" in self.model
-                else None,
+                # Toggle thinking mode (DeepSeek v4+). v4 defaults to enabled;
+                # we send explicitly so behaviour doesn't drift if the provider
+                # changes its default.
+                extra_body={"thinking": {"type": "enabled" if self.thinking else "disabled"}},
             )
 
             text_accumulator = ""
+            reasoning_acc = ""
             # Tool calls accumulate across chunks by index
             tool_calls_accumulator: dict[int, dict] = {}
 
@@ -311,9 +320,10 @@ class LLMClient:
                     text_accumulator += delta.content
                     yield AgentEvent(type="text_delta", data=delta.content)
 
-                # ── Reasoning (DeepSeek R1) ───────────────────────
+                # ── Reasoning (DeepSeek v4: delta.reasoning_content) ──
                 reasoning = getattr(delta, "reasoning_content", None)
                 if reasoning:
+                    reasoning_acc += reasoning
                     yield AgentEvent(type="thinking_delta", data=reasoning)
 
                 # ── Tool Calls (accumulate) ───────────────────────
@@ -373,6 +383,7 @@ class LLMClient:
                     # must not rebuild .content from streamed deltas.
                     assistant_msg = AssistantMessage(
                         content=[],
+                        reasoning_content=reasoning_acc or None,
                         model=self.model,
                         stop_reason=mapped_reason,
                     )
@@ -382,9 +393,10 @@ class LLMClient:
                             TextContent(text=text_accumulator)
                         )
 
-                    # Reasoning is intentionally NOT stored: providers reject or
-                    # ignore replayed reasoning_content, and re-sending it would
-                    # waste tokens. It is still streamed live to the UI.
+                    # v4+ requires reasoning_content to be round-tripped in
+                    # every subsequent request when tools are involved (else
+                    # HTTP 400). It is still streamed live to the UI as it
+                    # arrives; we only persist the final concatenated string.
                     assistant_msg.content.extend(tool_call_blocks)
 
                     if chunk.usage:
@@ -411,29 +423,18 @@ class LLMClient:
         tools: list[ToolDefinition] | None = None,
     ) -> AssistantMessage:
         """
-        Non-streaming chat. Collects all events and returns the final message.
-        """
-        result = AssistantMessage(
-            content=[], model=self.model, stop_reason="end_turn"
-        )
-        tool_calls: list[ToolCallContent] = []
+        Non-streaming chat. Returns the final assistant message.
 
+        Thin wrapper over chat_stream() — the streaming path is the source of
+        truth and yields a fully-formed AssistantMessage in its `agent_end`
+        event, so we just forward it.
+        """
         async for event in self.chat_stream(messages, tools):
-            if event.type == "text_delta":
-                result.content.append(TextContent(text=event.data))
-            elif event.type == "thinking_delta":
-                result.content.append(ThinkingContent(thinking=event.data))
-            elif event.type == "tool_call":
-                tool_calls.append(event.data)
-            elif event.type == "agent_end":
-                result = event.data
-                for tc in tool_calls:
-                    if not any(
-                        isinstance(c, ToolCallContent) and c.id == tc.id
-                        for c in result.content
-                    ):
-                        result.content.append(tc)
-            elif event.type == "error":
+            if event.type == "agent_end":
+                return event.data
+            if event.type == "error":
                 raise RuntimeError(f"LLM Error: {event.data}")
 
-        return result
+        # chat_stream is contractually required to emit exactly one of
+        # {agent_end, error} before terminating. Reaching here is a bug.
+        raise RuntimeError("LLM Error: stream ended without final message")
