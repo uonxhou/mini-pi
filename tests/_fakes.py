@@ -93,7 +93,7 @@ def fake_client(chunks: list | tuple = ()) -> LLMClient:
     async def create(**_kwargs):
         return _FakeStream(list(chunks))
 
-    client._client = SimpleNamespace(
+    client._client = SimpleNamespace(  # type: ignore[attr-defined]
         chat=SimpleNamespace(completions=SimpleNamespace(create=create))
     )
     return client

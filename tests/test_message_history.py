@@ -23,12 +23,12 @@ from _fakes import (
     usage,
 )
 
-from mini_pi.types import UserMessage
+from mini_pi.types import Message, UserMessage
 
 
 def test_plain_text_reply_keeps_its_content():
     """The exact regression: a text-only reply must not become content=null."""
-    history = [UserMessage(content="hi")]
+    history: list[Message] = [UserMessage(content="hi")]
     client = fake_client(
         [chunk("Hi"), chunk(" there!"), chunk(" 👋", finish="stop")]
     )
@@ -49,7 +49,7 @@ def test_second_turn_history_is_accepted():
     message from turn 1 was first replayed. Asserting only on turn 1 would
     have missed the bug entirely.
     """
-    history = [UserMessage(content="hi")]
+    history: list[Message] = [UserMessage(content="hi")]
     client = fake_client([chunk("Hi there!", finish="stop")])
     asyncio.run(run_stream(client, history))
 
@@ -66,7 +66,7 @@ def test_tool_call_reply_carries_its_calls():
     Arguments are split across chunks, as real providers do, so the
     accumulator is genuinely exercised.
     """
-    history = [UserMessage(content="read a.py")]
+    history: list[Message] = [UserMessage(content="read a.py")]
     client = fake_client(
         [
             chunk(tool_calls=[tool_call_delta(0, "call_1", "read", '{"path"')]),
@@ -87,7 +87,7 @@ def test_tool_call_reply_carries_its_calls():
 
 def test_text_and_tool_call_survive_together():
     """Mixed replies must keep both halves; dropping either corrupts the turn."""
-    history = [UserMessage(content="list files")]
+    history: list[Message] = [UserMessage(content="list files")]
     client = fake_client(
         [
             chunk("Let me check."),
@@ -115,7 +115,7 @@ def test_reasoning_round_trips_on_a_top_level_field():
     so `_to_openai_messages` can re-emit it unchanged. It must NOT also leak
     into `content` — that would double the cost and look like a tool round.
     """
-    history = [UserMessage(content="think about it")]
+    history: list[Message] = [UserMessage(content="think about it")]
     client = fake_client(
         [
             chunk(reasoning="Let me reason..."),
@@ -145,7 +145,7 @@ def test_reasoning_round_trips_on_a_top_level_field():
 
 def test_usage_is_recorded():
     """Token accounting must survive the message build."""
-    history = [UserMessage(content="hi")]
+    history: list[Message] = [UserMessage(content="hi")]
     client = fake_client([chunk("ok", finish="stop", usage=usage(12, 34))])
     message = asyncio.run(run_stream(client, history))
 
@@ -156,7 +156,7 @@ def test_usage_is_recorded():
 
 def test_malformed_tool_arguments_do_not_crash():
     """Truncated JSON must degrade to {} rather than kill the stream."""
-    history = [UserMessage(content="go")]
+    history: list[Message] = [UserMessage(content="go")]
     client = fake_client(
         [
             chunk(tool_calls=[tool_call_delta(0, "call_3", "bash", '{"cmd": "l')]),

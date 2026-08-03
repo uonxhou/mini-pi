@@ -8,6 +8,7 @@ typed content blocks and corrupted history before v0.3.4.
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from _fakes import FakeToolRegistry, assert_valid_openai_messages
 
@@ -60,18 +61,19 @@ def _turn(text: str = "", tool: ToolCallContent | None = None, **kw) -> Assistan
 def test_tool_cycle_produces_a_valid_message_sequence():
     """user → assistant(tool_calls) → tool → assistant is the shape the API expects."""
     call = ToolCallContent(id="call_abc", name="bash", arguments={"cmd": "ls"})
-    client = ScriptedClient(
+    client: Any = ScriptedClient(
         [
             _turn("Checking.", call, usage=Usage(10, 5)),
             _turn("Found 3 files.", usage=Usage(20, 8)),
         ]
     )
-    loop = AgentLoop(client, FakeToolRegistry(result="a.py\nb.py\nc.py"))
+    tools: Any = FakeToolRegistry(result="a.py\nb.py\nc.py")
+    loop = AgentLoop(client, tools)
 
     events = asyncio.run(_drain(loop, "list files"))
     assert "agent_done" in events
 
-    out = LLMClient._to_openai_messages(None, loop.messages)
+    out = LLMClient.__new__(LLMClient)._to_openai_messages(loop.messages)
     assert_valid_openai_messages(out)
     assert [m["role"] for m in out] == ["user", "assistant", "tool", "assistant"]
 
@@ -83,12 +85,12 @@ def test_tool_call_ids_are_paired():
     pairing independently of the content invariant.
     """
     call = ToolCallContent(id="call_xyz", name="read", arguments={"path": "a.py"})
-    client = ScriptedClient([_turn("", call), _turn("Done.")])
-    tools = FakeToolRegistry(result="file contents")
+    client: Any = ScriptedClient([_turn("", call), _turn("Done.")])
+    tools: Any = FakeToolRegistry(result="file contents")
     loop = AgentLoop(client, tools)
 
     asyncio.run(_drain(loop, "read a.py"))
-    out = LLMClient._to_openai_messages(None, loop.messages)
+    out = LLMClient.__new__(LLMClient)._to_openai_messages(loop.messages)
 
     declared = {
         tc["id"]
@@ -104,8 +106,9 @@ def test_tool_call_ids_are_paired():
 def test_history_grows_across_turns():
     """Each turn must see everything before it — the point of a conversation."""
     call = ToolCallContent(id="c1", name="bash", arguments={})
-    client = ScriptedClient([_turn("working", call), _turn("done")])
-    loop = AgentLoop(client, FakeToolRegistry())
+    client: Any = ScriptedClient([_turn("working", call), _turn("done")])
+    tools: Any = FakeToolRegistry()
+    loop = AgentLoop(client, tools)
 
     asyncio.run(_drain(loop, "go"))
 
@@ -114,16 +117,17 @@ def test_history_grows_across_turns():
     assert len(second) == 3  # user + assistant(tool_call) + tool result
     for snapshot in client.seen_history:
         assert_valid_openai_messages(
-            LLMClient._to_openai_messages(None, snapshot)
+            LLMClient.__new__(LLMClient)._to_openai_messages(snapshot)
         )
 
 
 def test_usage_accumulates():
     call = ToolCallContent(id="c1", name="bash", arguments={})
-    client = ScriptedClient(
+    client: Any = ScriptedClient(
         [_turn("a", call, usage=Usage(10, 5)), _turn("b", usage=Usage(20, 8))]
     )
-    loop = AgentLoop(client, FakeToolRegistry())
+    tools: Any = FakeToolRegistry()
+    loop = AgentLoop(client, tools)
 
     asyncio.run(_drain(loop, "go"))
     assert loop.total_usage == {"input_tokens": 30, "output_tokens": 13}
@@ -131,8 +135,9 @@ def test_usage_accumulates():
 
 def test_loop_stops_without_tool_calls():
     """A text-only reply ends the loop instead of spinning to max_turns."""
-    client = ScriptedClient([_turn("Just answering.")])
-    loop = AgentLoop(client, FakeToolRegistry())
+    client: Any = ScriptedClient([_turn("Just answering.")])
+    tools: Any = FakeToolRegistry()
+    loop = AgentLoop(client, tools)
 
     events = asyncio.run(_drain(loop, "hi"))
     assert events.count("turn_start") == 1
@@ -142,11 +147,12 @@ def test_loop_stops_without_tool_calls():
 def test_tool_errors_still_reach_history():
     """A failing tool must be reported back, not dropped — the model needs to see it."""
     call = ToolCallContent(id="c1", name="bash", arguments={"cmd": "nope"})
-    client = ScriptedClient([_turn("trying", call), _turn("that failed")])
-    loop = AgentLoop(client, FakeToolRegistry(result="command not found", is_error=True))
+    client: Any = ScriptedClient([_turn("trying", call), _turn("that failed")])
+    tools: Any = FakeToolRegistry(result="command not found", is_error=True)
+    loop = AgentLoop(client, tools)
 
     asyncio.run(_drain(loop, "run it"))
-    out = LLMClient._to_openai_messages(None, loop.messages)
+    out = LLMClient.__new__(LLMClient)._to_openai_messages(loop.messages)
 
     assert_valid_openai_messages(out)
     tool_msg = next(m for m in out if m["role"] == "tool")
