@@ -86,6 +86,9 @@ def fake_client(chunks: list | tuple = ()) -> LLMClient:
     client.model = "test-model"
     client.max_tokens = 100
     client.system_prompt = "test system prompt"
+    # Mirrors LLMClient.__init__ default; required because the v4 reasoning
+    # toggle is read off `self.thinking` inside chat_stream.
+    client.thinking = True
 
     async def create(**_kwargs):
         return _FakeStream(list(chunks))

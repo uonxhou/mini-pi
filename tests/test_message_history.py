@@ -105,11 +105,15 @@ def test_text_and_tool_call_survive_together():
     assert len(assistant["tool_calls"]) == 1
 
 
-def test_reasoning_is_streamed_but_not_replayed():
-    """Reasoning must reach the UI yet stay out of history.
+def test_reasoning_round_trips_on_a_top_level_field():
+    """Reasoning must reach the UI AND survive the round-trip.
 
-    Providers reject or ignore replayed reasoning_content, and re-sending it
-    burns tokens for no benefit — so it is streamed live and then dropped.
+    DeepSeek v4 changed the contract: `reasoning_content` must be sent back
+    on every subsequent request when tools are involved (else HTTP 400), and
+    the legacy `include_reasoning` flag is gone. We stream it live to the UI
+    while it arrives and persist it as a top-level field on AssistantMessage
+    so `_to_openai_messages` can re-emit it unchanged. It must NOT also leak
+    into `content` — that would double the cost and look like a tool round.
     """
     history = [UserMessage(content="think about it")]
     client = fake_client(
@@ -133,7 +137,10 @@ def test_reasoning_is_streamed_but_not_replayed():
 
     out = client._to_openai_messages(history)
     assert_valid_openai_messages(out)
-    assert "Let me reason" not in json.dumps(out, ensure_ascii=False)
+
+    # Survives the round-trip as a sibling of `content`, not inside it.
+    assert out[1]["reasoning_content"] == "Let me reason..."
+    assert out[1]["content"] == "Done."
 
 
 def test_usage_is_recorded():
