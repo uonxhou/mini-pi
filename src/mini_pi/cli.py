@@ -126,6 +126,11 @@ async def run_prompt(prompt: str, model: str, base_url: str | None, cwd: str, ap
                 sys.stdout.write(event.data)
                 sys.stdout.flush()
 
+            elif event.type == "thinking_delta":
+                # Reasoning text (DeepSeek-R1 / reasoner). Streamed live, dimmed.
+                sys.stdout.write(f"{Colors.DIM}{Colors.CYAN}💭 {event.data}{Colors.RESET}")
+                sys.stdout.flush()
+
             elif event.type == "tool_call":
                 print_tool_event("tool_call", event.data)
 
@@ -213,6 +218,11 @@ async def run_interactive(model: str, base_url: str | None, cwd: str, api_key: s
             async for event in agent.run(prompt):
                 if event.type == "text_delta":
                     sys.stdout.write(event.data)
+                    sys.stdout.flush()
+
+                elif event.type == "thinking_delta":
+                    # Reasoning text (DeepSeek-R1 / reasoner). Streamed live, dimmed.
+                    sys.stdout.write(f"{Colors.DIM}{Colors.CYAN}💭 {event.data}{Colors.RESET}")
                     sys.stdout.flush()
 
                 elif event.type == "tool_call":
