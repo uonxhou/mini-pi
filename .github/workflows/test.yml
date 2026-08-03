@@ -38,8 +38,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install uv
+      - name: Install uv and select Python
         uses: astral-sh/setup-uv@v7
+        with:
+          # setup-uv includes this value in its cache key. Without it, matrix
+          # jobs on the same OS race to save one shared cache at teardown.
+          python-version: ${{ matrix.python }}
 
       - name: Run tests
-        run: uv run --python ${{ matrix.python }} --group dev pytest
+        run: uv run --group dev pytest

@@ -120,6 +120,8 @@ async def run_prompt(prompt: str, model: str, base_url: str | None, cwd: str, ap
     print()
     print(f"{Colors.BOLD}{Colors.GREEN}Assistant:{Colors.RESET}")
 
+    thinking_started = False
+
     try:
         async for event in agent.run(prompt):
             if event.type == "text_delta":
@@ -128,7 +130,10 @@ async def run_prompt(prompt: str, model: str, base_url: str | None, cwd: str, ap
 
             elif event.type == "thinking_delta":
                 # Reasoning text (DeepSeek-R1 / reasoner). Streamed live, dimmed.
-                sys.stdout.write(f"{Colors.DIM}{Colors.CYAN}💭 {event.data}{Colors.RESET}")
+                if not thinking_started:
+                    sys.stdout.write(f"{Colors.DIM}{Colors.CYAN}💭 ")
+                    thinking_started = True
+                sys.stdout.write(f"{event.data}{Colors.RESET}")
                 sys.stdout.flush()
 
             elif event.type == "tool_call":
@@ -215,6 +220,8 @@ async def run_interactive(model: str, base_url: str | None, cwd: str, api_key: s
             print()
             print(f"{Colors.BOLD}{Colors.GREEN}Assistant:{Colors.RESET}")
 
+            thinking_started = False
+
             async for event in agent.run(prompt):
                 if event.type == "text_delta":
                     sys.stdout.write(event.data)
@@ -222,7 +229,10 @@ async def run_interactive(model: str, base_url: str | None, cwd: str, api_key: s
 
                 elif event.type == "thinking_delta":
                     # Reasoning text (DeepSeek-R1 / reasoner). Streamed live, dimmed.
-                    sys.stdout.write(f"{Colors.DIM}{Colors.CYAN}💭 {event.data}{Colors.RESET}")
+                    if not thinking_started:
+                        sys.stdout.write(f"{Colors.DIM}{Colors.CYAN}💭 ")
+                        thinking_started = True
+                    sys.stdout.write(f"{event.data}{Colors.RESET}")
                     sys.stdout.flush()
 
                 elif event.type == "tool_call":
